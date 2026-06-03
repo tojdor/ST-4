@@ -1,249 +1,237 @@
 ﻿using System;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using BugPro;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace BugTests;
-
-[TestClass]
-public class BugWorkflowTests
+namespace BugTests
 {
-    [TestMethod]
-    public void InitialStateIsNew()
+    [TestClass]
+    public class BugWorkflowTests
     {
-        var bug = new Bug();
-        Assert.AreEqual(BugState.New, bug.State);
-    }
+        private static Bug FreshBug() => new Bug();
 
-    [TestMethod]
-    public void StartTriageFromNewMovesToTriage()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        Assert.AreEqual(BugState.Triage, bug.State);
-    }
+        [TestMethod]
+        public void NewBug_StartsInOpen()
+        {
+            var bug = FreshBug();
+            Assert.AreEqual(State.Open, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void StartFixFromTriageMovesToFixing()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.StartFix();
-        Assert.AreEqual(BugState.Fixing, bug.State);
-    }
+        [TestMethod]
+        public void NewBug_HasZeroReopens()
+        {
+            var bug = FreshBug();
+            Assert.AreEqual(0, bug.ReopenCount);
+        }
 
-    [TestMethod]
-    public void NeedInfoFromTriageMovesToNeedInfo()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.NeedInfo();
-        Assert.AreEqual(BugState.NeedInfo, bug.State);
-    }
+        [TestMethod]
+        public void Analyze_MovesOpenToAnalysis()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            Assert.AreEqual(State.InAnalysis, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void OtherProductFromTriageMovesToOtherProduct()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.OtherProduct();
-        Assert.AreEqual(BugState.OtherProduct, bug.State);
-    }
+        [TestMethod]
+        public void Assign_MovesAnalysisToInProgress()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Assign();
+            Assert.AreEqual(State.InProgress, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void NeedDecisionLaterFromTriageMovesToNeedDecisionLater()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.NeedDecisionLater();
-        Assert.AreEqual(BugState.NeedDecisionLater, bug.State);
-    }
+        [TestMethod]
+        public void Resolve_MovesInProgressToResolved()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Assign();
+            bug.Resolve();
+            Assert.AreEqual(State.Resolved, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void MarkNotBugFromTriageMovesToNotABug()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkNotBug();
-        Assert.AreEqual(BugState.NotABug, bug.State);
-    }
+        [TestMethod]
+        public void Confirm_MovesResolvedToClosed()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Assign();
+            bug.Resolve();
+            bug.Confirm();
+            Assert.AreEqual(State.Closed, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void MarkWontFixFromTriageMovesToWontFix()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkWontFix();
-        Assert.AreEqual(BugState.WontFix, bug.State);
-    }
+        [TestMethod]
+        public void Reject_MovesAnalysisToRejected()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Reject();
+            Assert.AreEqual(State.Rejected, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void MarkDuplicateFromTriageMovesToDuplicate()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkDuplicate();
-        Assert.AreEqual(BugState.Duplicate, bug.State);
-    }
+        [TestMethod]
+        public void Defer_MovesAnalysisToDeferred()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Defer();
+            Assert.AreEqual(State.Deferred, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void MarkNotReproFromTriageMovesToNotReproducible()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkNotRepro();
-        Assert.AreEqual(BugState.NotReproducible, bug.State);
-    }
+        [TestMethod]
+        public void Resume_MovesDeferredBackToAnalysis()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Defer();
+            bug.Resume();
+            Assert.AreEqual(State.InAnalysis, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void ReturnFromNeedInfoMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.NeedInfo();
-        bug.Return();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void Reanalyze_FromInProgress_ReturnsToAnalysis()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Assign();
+            bug.Reanalyze();
+            Assert.AreEqual(State.InAnalysis, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void ReturnFromOtherProductMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.OtherProduct();
-        bug.Return();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void Reanalyze_FromResolved_ReturnsToAnalysis()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Assign();
+            bug.Resolve();
+            bug.Reanalyze();
+            Assert.AreEqual(State.InAnalysis, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void ReturnFromNeedDecisionLaterMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.NeedDecisionLater();
-        bug.Return();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void Reopen_FromClosed_MovesToReopened()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Assign();
+            bug.Resolve();
+            bug.Confirm();
+            bug.Reopen();
+            Assert.AreEqual(State.Reopened, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void ReturnFromNotABugMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkNotBug();
-        bug.Return();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void Reopen_FromRejected_MovesToReopened()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Reject();
+            bug.Reopen();
+            Assert.AreEqual(State.Reopened, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void ReturnFromWontFixMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkWontFix();
-        bug.Return();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void Reopen_IncrementsReopenCount()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Reject();
+            bug.Reopen();
+            Assert.AreEqual(1, bug.ReopenCount);
+        }
 
-    [TestMethod]
-    public void ReturnFromDuplicateMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkDuplicate();
-        bug.Return();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void Reopened_Analyze_ReturnsToAnalysis()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Reject();
+            bug.Reopen();
+            bug.Analyze();
+            Assert.AreEqual(State.InAnalysis, bug.CurrentState);
+        }
 
-    [TestMethod]
-    public void ReturnFromNotReproMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.MarkNotRepro();
-        bug.Return();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void CanFire_Analyze_TrueInOpen()
+        {
+            var bug = FreshBug();
+            Assert.IsTrue(bug.CanFire(Trigger.Analyze));
+        }
 
-    [TestMethod]
-    public void StartTriageFromReturnedMovesToTriage()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.NeedInfo();
-        bug.Return();
-        bug.StartTriage();
-        Assert.AreEqual(BugState.Triage, bug.State);
-    }
+        [TestMethod]
+        public void CanFire_Assign_FalseInOpen()
+        {
+            var bug = FreshBug();
+            Assert.IsFalse(bug.CanFire(Trigger.Assign));
+        }
 
-    [TestMethod]
-    public void MarkFixedFromFixingMovesToVerification()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.StartFix();
-        bug.MarkFixed();
-        Assert.AreEqual(BugState.Verification, bug.State);
-    }
+        [TestMethod]
+        public void Assign_FromOpen_Throws()
+        {
+            var bug = FreshBug();
+            Assert.ThrowsException<InvalidOperationException>(() => bug.Assign());
+        }
 
-    [TestMethod]
-    public void ApproveFromVerificationMovesToClosed()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.StartFix();
-        bug.MarkFixed();
-        bug.Approve();
-        Assert.AreEqual(BugState.Closed, bug.State);
-    }
+        [TestMethod]
+        public void Confirm_FromOpen_Throws()
+        {
+            var bug = FreshBug();
+            Assert.ThrowsException<InvalidOperationException>(() => bug.Confirm());
+        }
 
-    [TestMethod]
-    public void RejectFromVerificationMovesToReturned()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.StartFix();
-        bug.MarkFixed();
-        bug.Reject();
-        Assert.AreEqual(BugState.Returned, bug.State);
-    }
+        [TestMethod]
+        public void Resolve_FromAnalysis_Throws()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            Assert.ThrowsException<InvalidOperationException>(() => bug.Resolve());
+        }
 
-    [TestMethod]
-    public void ReopenFromClosedMovesToReopened()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.StartFix();
-        bug.MarkFixed();
-        bug.Approve();
-        bug.Reopen();
-        Assert.AreEqual(BugState.Reopened, bug.State);
-    }
+        [TestMethod]
+        public void Reopen_FromOpen_Throws()
+        {
+            var bug = FreshBug();
+            Assert.ThrowsException<InvalidOperationException>(() => bug.Reopen());
+        }
 
-    [TestMethod]
-    public void StartTriageFromReopenedMovesToTriage()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        bug.StartFix();
-        bug.MarkFixed();
-        bug.Approve();
-        bug.Reopen();
-        bug.StartTriage();
-        Assert.AreEqual(BugState.Triage, bug.State);
-    }
+        [TestMethod]
+        public void Resume_FromClosed_Throws()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Assign();
+            bug.Resolve();
+            bug.Confirm();
+            Assert.ThrowsException<InvalidOperationException>(() => bug.Resume());
+        }
 
-    [TestMethod]
-    public void ApproveInNewThrows()
-    {
-        var bug = new Bug();
-        Assert.ThrowsException<InvalidOperationException>(() => bug.Approve());
-    }
+        [TestMethod]
+        public void Reopen_BeyondLimit_Throws()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            bug.Reject();
 
-    [TestMethod]
-    public void ReturnInTriageThrows()
-    {
-        var bug = new Bug();
-        bug.StartTriage();
-        Assert.ThrowsException<InvalidOperationException>(() => bug.Return());
+            for (int i = 0; i < Bug.MaxReopen; i++)
+            {
+                bug.Reopen();
+                bug.Analyze();
+                bug.Reject();
+            }
+
+            Assert.AreEqual(Bug.MaxReopen, bug.ReopenCount);
+            Assert.IsFalse(bug.CanFire(Trigger.Reopen));
+            Assert.ThrowsException<InvalidOperationException>(() => bug.Reopen());
+        }
+
+        [TestMethod]
+        public void DoubleAnalyze_Throws()
+        {
+            var bug = FreshBug();
+            bug.Analyze();
+            Assert.ThrowsException<InvalidOperationException>(() => bug.Analyze());
+        }
     }
 }

@@ -1,159 +1,116 @@
 ﻿using System;
 using Stateless;
 
-namespace BugPro;
-
-public enum BugState
+namespace BugPro
 {
-    New,
-    Triage,
-    Fixing,
-    Verification,
-    Closed,
-    Returned,
-    Reopened,
-    NeedInfo,
-    OtherProduct,
-    NeedDecisionLater,
-    NotABug,
-    WontFix,
-    Duplicate,
-    NotReproducible
-}
-
-public enum BugTrigger
-{
-    StartTriage,
-    StartFix,
-    MarkFixed,
-    Approve,
-    Reject,
-    Return,
-    Reopen,
-    NeedInfo,
-    OtherProduct,
-    NeedDecisionLater,
-    MarkNotBug,
-    MarkWontFix,
-    MarkDuplicate,
-    MarkNotRepro
-}
-
-public class Bug
-{
-    private readonly StateMachine<BugState, BugTrigger> _machine;
-
-    public BugState State => _machine.State;
-
-    public Bug(BugState initialState = BugState.New)
+    public enum State
     {
-        _machine = new StateMachine<BugState, BugTrigger>(initialState);
-        Configure();
+        Open,
+        InAnalysis,
+        InProgress,
+        Resolved,
+        Closed,
+        Reopened,
+        Rejected,
+        Deferred
     }
 
-    public bool CanFire(BugTrigger trigger) => _machine.CanFire(trigger);
-
-    public void Fire(BugTrigger trigger) => _machine.Fire(trigger);
-
-    public void StartTriage() => _machine.Fire(BugTrigger.StartTriage);
-
-    public void StartFix() => _machine.Fire(BugTrigger.StartFix);
-
-    public void MarkFixed() => _machine.Fire(BugTrigger.MarkFixed);
-
-    public void Approve() => _machine.Fire(BugTrigger.Approve);
-
-    public void Reject() => _machine.Fire(BugTrigger.Reject);
-
-    public void Return() => _machine.Fire(BugTrigger.Return);
-
-    public void Reopen() => _machine.Fire(BugTrigger.Reopen);
-
-    public void NeedInfo() => _machine.Fire(BugTrigger.NeedInfo);
-
-    public void OtherProduct() => _machine.Fire(BugTrigger.OtherProduct);
-
-    public void NeedDecisionLater() => _machine.Fire(BugTrigger.NeedDecisionLater);
-
-    public void MarkNotBug() => _machine.Fire(BugTrigger.MarkNotBug);
-
-    public void MarkWontFix() => _machine.Fire(BugTrigger.MarkWontFix);
-
-    public void MarkDuplicate() => _machine.Fire(BugTrigger.MarkDuplicate);
-
-    public void MarkNotRepro() => _machine.Fire(BugTrigger.MarkNotRepro);
-
-    private void Configure()
+    public enum Trigger
     {
-        _machine.Configure(BugState.New)
-            .Permit(BugTrigger.StartTriage, BugState.Triage);
-
-        _machine.Configure(BugState.Triage)
-            .Permit(BugTrigger.StartFix, BugState.Fixing)
-            .Permit(BugTrigger.NeedInfo, BugState.NeedInfo)
-            .Permit(BugTrigger.OtherProduct, BugState.OtherProduct)
-            .Permit(BugTrigger.NeedDecisionLater, BugState.NeedDecisionLater)
-            .Permit(BugTrigger.MarkNotBug, BugState.NotABug)
-            .Permit(BugTrigger.MarkWontFix, BugState.WontFix)
-            .Permit(BugTrigger.MarkDuplicate, BugState.Duplicate)
-            .Permit(BugTrigger.MarkNotRepro, BugState.NotReproducible);
-
-        _machine.Configure(BugState.NeedInfo)
-            .Permit(BugTrigger.Return, BugState.Returned);
-        _machine.Configure(BugState.OtherProduct)
-            .Permit(BugTrigger.Return, BugState.Returned);
-        _machine.Configure(BugState.NeedDecisionLater)
-            .Permit(BugTrigger.Return, BugState.Returned);
-        _machine.Configure(BugState.NotABug)
-            .Permit(BugTrigger.Return, BugState.Returned);
-        _machine.Configure(BugState.WontFix)
-            .Permit(BugTrigger.Return, BugState.Returned);
-        _machine.Configure(BugState.Duplicate)
-            .Permit(BugTrigger.Return, BugState.Returned);
-        _machine.Configure(BugState.NotReproducible)
-            .Permit(BugTrigger.Return, BugState.Returned);
-
-        _machine.Configure(BugState.Returned)
-            .Permit(BugTrigger.StartTriage, BugState.Triage);
-
-        _machine.Configure(BugState.Fixing)
-            .Permit(BugTrigger.MarkFixed, BugState.Verification);
-
-        _machine.Configure(BugState.Verification)
-            .Permit(BugTrigger.Approve, BugState.Closed)
-            .Permit(BugTrigger.Reject, BugState.Returned);
-
-        _machine.Configure(BugState.Closed)
-            .Permit(BugTrigger.Reopen, BugState.Reopened);
-
-        _machine.Configure(BugState.Reopened)
-            .Permit(BugTrigger.StartTriage, BugState.Triage);
+        Analyze,
+        Assign,
+        Resolve,
+        Confirm,
+        Reanalyze,
+        Reject,
+        Defer,
+        Resume,
+        Reopen
     }
-}
 
-public static class Program
-{
-    public static void Main()
+    public class Bug
     {
-        var bug = new Bug();
-        Console.WriteLine($"Initial: {bug.State}");
+        public const int MaxReopen = 3;
 
-        bug.StartTriage();
-        Console.WriteLine($"After StartTriage: {bug.State}");
+        private readonly StateMachine<State, Trigger> _machine;
+        private int _reopenCount;
 
-        bug.StartFix();
-        Console.WriteLine($"After StartFix: {bug.State}");
+        public Bug()
+        {
+            _machine = new StateMachine<State, Trigger>(State.Open);
 
-        bug.MarkFixed();
-        Console.WriteLine($"After MarkFixed: {bug.State}");
+            _machine.Configure(State.Open)
+                .Permit(Trigger.Analyze, State.InAnalysis);
 
-        bug.Approve();
-        Console.WriteLine($"After Approve: {bug.State}");
+            _machine.Configure(State.InAnalysis)
+                .Permit(Trigger.Assign, State.InProgress)
+                .Permit(Trigger.Defer, State.Deferred)
+                .Permit(Trigger.Reject, State.Rejected);
 
-        bug.Reopen();
-        Console.WriteLine($"After Reopen: {bug.State}");
+            _machine.Configure(State.InProgress)
+                .Permit(Trigger.Resolve, State.Resolved)
+                .Permit(Trigger.Reanalyze, State.InAnalysis);
 
-        bug.StartTriage();
-        Console.WriteLine($"After StartTriage (Reopened): {bug.State}");
+            _machine.Configure(State.Resolved)
+                .Permit(Trigger.Confirm, State.Closed)
+                .Permit(Trigger.Reanalyze, State.InAnalysis);
+
+            _machine.Configure(State.Deferred)
+                .Permit(Trigger.Resume, State.InAnalysis);
+
+            _machine.Configure(State.Closed)
+                .PermitIf(Trigger.Reopen, State.Reopened, () => _reopenCount < MaxReopen);
+
+            _machine.Configure(State.Rejected)
+                .PermitIf(Trigger.Reopen, State.Reopened, () => _reopenCount < MaxReopen);
+
+            _machine.Configure(State.Reopened)
+                .OnEntry(() => _reopenCount++)
+                .Permit(Trigger.Analyze, State.InAnalysis);
+        }
+
+        public State CurrentState => _machine.State;
+
+        public int ReopenCount => _reopenCount;
+
+        public bool CanFire(Trigger trigger) => _machine.CanFire(trigger);
+
+        public void Analyze() => _machine.Fire(Trigger.Analyze);
+        public void Assign() => _machine.Fire(Trigger.Assign);
+        public void Resolve() => _machine.Fire(Trigger.Resolve);
+        public void Confirm() => _machine.Fire(Trigger.Confirm);
+        public void Reanalyze() => _machine.Fire(Trigger.Reanalyze);
+        public void Reject() => _machine.Fire(Trigger.Reject);
+        public void Defer() => _machine.Fire(Trigger.Defer);
+        public void Resume() => _machine.Fire(Trigger.Resume);
+        public void Reopen() => _machine.Fire(Trigger.Reopen);
+    }
+
+    public static class Program
+    {
+        public static void Main()
+        {
+            var bug = new Bug();
+            Console.WriteLine($"Start: {bug.CurrentState}");
+
+            bug.Analyze();
+            Console.WriteLine($"After Analyze: {bug.CurrentState}");
+
+            bug.Assign();
+            Console.WriteLine($"After Assign: {bug.CurrentState}");
+
+            bug.Resolve();
+            Console.WriteLine($"After Resolve: {bug.CurrentState}");
+
+            bug.Confirm();
+            Console.WriteLine($"After Confirm: {bug.CurrentState}");
+
+            bug.Reopen();
+            Console.WriteLine($"After Reopen: {bug.CurrentState} " +
+                              $"(reopened {bug.ReopenCount} time(s))");
+
+            bug.Analyze();
+            Console.WriteLine($"After Analyze: {bug.CurrentState}");
+        }
     }
 }
