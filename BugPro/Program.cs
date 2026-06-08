@@ -1,89 +1,99 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using Stateless;
 
 namespace BugPro
 {
-    public enum State
+    public sealed class WorkflowViolationException : InvalidOperationException
     {
-        Open,
-        InAnalysis,
-        InProgress,
-        Resolved,
-        Closed,
-        Reopened,
-        Rejected,
-        Deferred
+        public WorkflowViolationException(string message) : base(message) { }
     }
 
-    public enum Trigger
+    public enum Stage
     {
-        Analyze,
-        Assign,
-        Resolve,
-        Confirm,
-        Reanalyze,
-        Reject,
-        Defer,
-        Resume,
+        Registered,
+        Triage,
+        Accepted,
+        Building,
+        Paused,
+        QA,
+        Done,
+        Declined,
+        Reopened
+    }
+
+    public enum Move
+    {
+        Triage,
+        Accept,
+        Decline,
+        Build,
+        Pause,
+        Unpause,
+        ToQa,
+        Bounce,
+        Close,
         Reopen
     }
 
-    public class Bug
+    public sealed class Bug
     {
-        public const int MaxReopen = 3;
+        public const int MaxReopens = 2;
 
-        private readonly StateMachine<State, Trigger> _machine;
-        private int _reopenCount;
+        private sealed record Edge(Stage From, Move On, Stage To, Func<Bug, bool>? When = null);
+
+        private static readonly Edge[] Edges =
+        {
+            new(Stage.Registered, Move.Triage,  Stage.Triage),
+            new(Stage.Triage,     Move.Accept,  Stage.Accepted),
+            new(Stage.Triage,     Move.Decline, Stage.Declined),
+            new(Stage.Accepted,   Move.Build,   Stage.Building),
+            new(Stage.Building,   Move.Pause,   Stage.Paused),
+            new(Stage.Paused,     Move.Unpause, Stage.Building),
+            new(Stage.Building,   Move.ToQa,    Stage.QA),
+            new(Stage.QA,         Move.Bounce,  Stage.Building),
+            new(Stage.QA,         Move.Close,   Stage.Done),
+            new(Stage.Done,       Move.Reopen,  Stage.Reopened, b => b._reopens < MaxReopens),
+            new(Stage.Declined,   Move.Reopen,  Stage.Reopened, b => b._reopens < MaxReopens),
+            new(Stage.Reopened,   Move.Triage,  Stage.Triage),
+        };
+
+        private readonly StateMachine<Stage, Move> _sm;
+        private readonly List<string> _log = new();
+        private int _reopens;
 
         public Bug()
         {
-            _machine = new StateMachine<State, Trigger>(State.Open);
+            _sm = new StateMachine<Stage, Move>(Stage.Registered);
 
-            _machine.Configure(State.Open)
-                .Permit(Trigger.Analyze, State.InAnalysis);
+            _sm.OnUnhandledTrigger((stage, move) =>
+                throw new WorkflowViolationException(
+                    $"Действие {move} запрещено на стадии {stage}."));
 
-            _machine.Configure(State.InAnalysis)
-                .Permit(Trigger.Assign, State.InProgress)
-                .Permit(Trigger.Defer, State.Deferred)
-                .Permit(Trigger.Reject, State.Rejected);
+            _sm.Configure(Stage.Reopened).OnEntry(() => _reopens++);
 
-            _machine.Configure(State.InProgress)
-                .Permit(Trigger.Resolve, State.Resolved)
-                .Permit(Trigger.Reanalyze, State.InAnalysis);
+            foreach (var group in Edges.GroupBy(e => e.From))
+            {
+                var cfg = _sm.Configure(group.Key);
+                foreach (var edge in group)
+                {
+                    if (edge.When is null)
+                        cfg.Permit(edge.On, edge.To);
+                    else
+                        cfg.PermitIf(edge.On, edge.To, () => edge.When(this));
+                }
+            }
 
-            _machine.Configure(State.Resolved)
-                .Permit(Trigger.Confirm, State.Closed)
-                .Permit(Trigger.Reanalyze, State.InAnalysis);
-
-            _machine.Configure(State.Deferred)
-                .Permit(Trigger.Resume, State.InAnalysis);
-
-            _machine.Configure(State.Closed)
-                .PermitIf(Trigger.Reopen, State.Reopened, () => _reopenCount < MaxReopen);
-
-            _machine.Configure(State.Rejected)
-                .PermitIf(Trigger.Reopen, State.Reopened, () => _reopenCount < MaxReopen);
-
-            _machine.Configure(State.Reopened)
-                .OnEntry(() => _reopenCount++)
-                .Permit(Trigger.Analyze, State.InAnalysis);
+            _sm.OnTransitioned(t => _log.Add($"{t.Source}:{t.Trigger}->{t.Destination}"));
         }
 
-        public State CurrentState => _machine.State;
-
-        public int ReopenCount => _reopenCount;
-
-        public bool CanFire(Trigger trigger) => _machine.CanFire(trigger);
-
-        public void Analyze() => _machine.Fire(Trigger.Analyze);
-        public void Assign() => _machine.Fire(Trigger.Assign);
-        public void Resolve() => _machine.Fire(Trigger.Resolve);
-        public void Confirm() => _machine.Fire(Trigger.Confirm);
-        public void Reanalyze() => _machine.Fire(Trigger.Reanalyze);
-        public void Reject() => _machine.Fire(Trigger.Reject);
-        public void Defer() => _machine.Fire(Trigger.Defer);
-        public void Resume() => _machine.Fire(Trigger.Resume);
-        public void Reopen() => _machine.Fire(Trigger.Reopen);
+        public Stage Current => _sm.State;
+        public int Reopens => _reopens;
+        public IReadOnlyList<string> Log => _log;
+        public bool Allows(Move move) => _sm.CanFire(move);
+        public IEnumerable<Move> Options => _sm.PermittedTriggers;
+        public void Do(Move move) => _sm.Fire(move);
     }
 
     public static class Program
@@ -91,26 +101,20 @@ namespace BugPro
         public static void Main()
         {
             var bug = new Bug();
-            Console.WriteLine($"Start: {bug.CurrentState}");
+            Console.WriteLine($"Старт: {bug.Current}");
 
-            bug.Analyze();
-            Console.WriteLine($"After Analyze: {bug.CurrentState}");
+            foreach (var move in new[] { Move.Triage, Move.Accept, Move.Build, Move.ToQa, Move.Close })
+            {
+                bug.Do(move);
+                Console.WriteLine($"После {move}: {bug.Current}");
+            }
 
-            bug.Assign();
-            Console.WriteLine($"After Assign: {bug.CurrentState}");
+            bug.Do(Move.Reopen);
+            Console.WriteLine($"После Reopen: {bug.Current} (переоткрытий: {bug.Reopens})");
 
-            bug.Resolve();
-            Console.WriteLine($"After Resolve: {bug.CurrentState}");
-
-            bug.Confirm();
-            Console.WriteLine($"After Confirm: {bug.CurrentState}");
-
-            bug.Reopen();
-            Console.WriteLine($"After Reopen: {bug.CurrentState} " +
-                              $"(reopened {bug.ReopenCount} time(s))");
-
-            bug.Analyze();
-            Console.WriteLine($"After Analyze: {bug.CurrentState}");
+            Console.WriteLine("\nЖурнал переходов:");
+            foreach (var line in bug.Log)
+                Console.WriteLine($"  {line}");
         }
     }
 }
